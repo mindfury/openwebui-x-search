@@ -1,7 +1,8 @@
 """
 title: X Search
 description: Search X (Twitter) for posts, people and trending topics using xAI's server-side x_search tool on the Responses API.
-author: phil
+author: Tazendor
+author_url: https://github.com/mindfury
 version: 1.0.0
 license: MIT
 requirements: requests

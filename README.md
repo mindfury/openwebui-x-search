@@ -155,3 +155,6 @@ never touches the network.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Built by [Tazendor](https://github.com/mindfury). Bug reports and feature requests are
+best filed as issues; otherwise phil@tazendor.com.
