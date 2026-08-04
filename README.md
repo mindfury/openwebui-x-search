@@ -156,5 +156,5 @@ never touches the network.
 
 MIT — see [LICENSE](LICENSE).
 
-Built by [Tazendor](https://github.com/mindfury). Bug reports and feature requests are
-best filed as issues; otherwise phil@tazendor.com.
+Built by [mindfury](https://github.com/mindfury). Bug reports and feature requests are
+welcome as GitHub issues.
