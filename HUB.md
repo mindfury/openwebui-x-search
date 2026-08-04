@@ -17,13 +17,15 @@ X Search
 
 ## Short description
 
-Taken automatically from the `description:` line in the docstring header:
+The hub takes this from the `description:` line of the docstring header in
+`x_search.py`. It is deliberately not repeated here — a copy drifts the moment the
+header changes. To read the current one:
 
+```bash
+sed -n '3p' x_search.py
 ```
-Give any model live access to X (Twitter). A Grok agent researches your question on X
-and returns a written answer citing the posts it used. Needs an xAI API key; each
-search takes 20-60s and spends xAI credits.
-```
+
+Edit it in `x_search.py`, never here.
 
 ## Long description
 
