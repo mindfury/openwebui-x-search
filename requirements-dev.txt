@@ -1,0 +1,5 @@
+# Test-only dependencies. The tool itself needs `requests` and `pydantic`, both of
+# which Open WebUI already provides at runtime.
+pytest>=8.0
+requests>=2.31
+pydantic>=2.0

@@ -1,0 +1,7 @@
+# This repository is not a distributable Python package — x_search.py is a single
+# file you paste into Open WebUI. This config exists only for the test suite.
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
