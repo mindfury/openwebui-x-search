@@ -35,6 +35,15 @@ investigation of X and comes back with a written answer plus the posts it used.
 It works with **any** chat model that supports tool calling. You do not have to be
 using Grok; the Grok call happens inside the tool.
 
+### This is not an X API wrapper
+
+Worth being clear about, because the name invites the wrong assumption. It does not
+fetch a post by URL, take search operators, or return raw posts and JSON. Every call
+starts a Grok agent that chooses its own queries, reads across several rounds of
+results, and writes a cited answer. Right tool for *"what are people saying about
+this"*, wrong tool for *"get me this post"* — and that is why a call costs seconds
+and credits instead of milliseconds and nothing.
+
 **Good for:** reaction to news, sentiment about a person or product, what an account
 has been posting, trending topics, breaking events where first-hand posts beat
 articles. It can also find accounts worth following on a subject, or pull a full

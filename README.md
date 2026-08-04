@@ -10,6 +10,18 @@ different thing: they don't give your existing models the ability to search X. T
 Your chat model can be anything with working function calling. The Grok call happens
 inside the tool.
 
+## What this is not
+
+It is easy to mistake this for a thin wrapper around the X API, and the distinction
+matters more than the name suggests. This does **not** fetch a post by URL, take search
+operators, or hand back raw posts and JSON. There is no cheap, fast, deterministic path
+through it.
+
+Every call starts a Grok agent that picks its own search queries, reads what it finds
+across several rounds, and writes prose with citations. That makes it the right tool for
+*"what are people saying about this"* and the wrong one for *"get me this post"* — and it
+is why a call costs seconds and credits rather than milliseconds and nothing.
+
 ## Quick start
 
 1. Copy all of [`x_search.py`](x_search.py) into **Workspace → Tools → Create**, and save.
