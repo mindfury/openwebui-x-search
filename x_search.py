@@ -1,8 +1,8 @@
 """
 title: X Search
-description: Search X (Twitter) for posts, people and trending topics using xAI's server-side x_search tool on the Responses API.
+description: Give any model live access to X (Twitter). A Grok agent researches your question on X and returns a written answer citing the posts it used. Needs an xAI API key; each search takes 20-60s and spends xAI credits.
 author: mindfury
-author_url: https://github.com/mindfury
+author_url: https://github.com/mindfury/openwebui-x-search
 version: 1.0.0
 license: MIT
 requirements: requests
@@ -592,7 +592,7 @@ class Tools:
     class Valves(BaseModel):
         XAI_API_KEY: str = Field(
             default=os.getenv("XAI_API_KEY", ""),
-            description="xAI API key (https://console.x.ai). Defaults to the XAI_API_KEY environment variable.",
+            description="Required — the tool does nothing until this is set. Create a key at https://console.x.ai. Falls back to an XAI_API_KEY environment variable on the Open WebUI server. Every other valve below can be left alone.",
         )
         BASE_URL: str = Field(
             default="https://api.x.ai/v1",

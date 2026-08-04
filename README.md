@@ -10,6 +10,18 @@ different thing: they don't give your existing models the ability to search X. T
 Your chat model can be anything with working function calling. The Grok call happens
 inside the tool.
 
+## Quick start
+
+1. Copy all of [`x_search.py`](x_search.py) into **Workspace → Tools → Create**, and save.
+2. Open the tool's **gear icon** and set `XAI_API_KEY` — get one at
+   [console.x.ai](https://console.x.ai).
+3. Turn it on in a chat with **+**, and ask something like *"what are people on X saying
+   about the Grok 4.5 launch?"*
+
+Every other setting has a working default. Two things to know before you rely on it:
+each search takes **20–60 seconds**, and each one **spends xAI credits** separately from
+your chat model. See [cost and latency](#cost-and-latency).
+
 ## What a call looks like
 
 You ask a question; the tool hands it to a Grok agent that runs its own multi-step
