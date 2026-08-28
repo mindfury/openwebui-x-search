@@ -176,6 +176,19 @@ class TestUserValves:
         arun(tool.search_x("q"))
         assert xai.tool_config["excluded_x_handles"] == ["noise"]
 
+    def test_a_dropped_exclusion_note_names_where_it_came_from(self, tool, xai):
+        """A call-level exclusion is not a 'default', and saying so misleads."""
+        valves = Tools.UserValves(ALLOWED_HANDLES="nasa")
+        out = arun(tool.search_x("q", excluded_handles="spammer", __user__={"valves": valves}))
+        assert xai.tool_config["allowed_x_handles"] == ["nasa"]
+        assert "excluded_x_handles" not in xai.tool_config
+        assert "Call-level excluded handles were ignored" in out
+
+    def test_a_dropped_default_is_described_as_a_default(self, tool, xai):
+        tool.valves.DEFAULT_EXCLUDED_HANDLES = "noise"
+        out = arun(tool.search_x("q", allowed_handles="nasa"))
+        assert "Default excluded handles were ignored" in out
+
 
 class TestResult:
     def test_includes_summary_scope_and_queries(self, tool, xai):
@@ -210,6 +223,33 @@ class TestResult:
         assert "[2] https://x.com/i/status/2 (X post)" in out
         assert "Other sources consulted (not cited in the summary):" in out
         assert "- https://x.ai/news" in out
+
+    def test_numbering_falls_back_when_annotations_carry_page_titles(self, tool, xai):
+        """The summary's [1]/[2] must still line up with the list below it."""
+        xai.queue(
+            payload=message_payload(
+                text="A [1] and B [2].",
+                cited=(
+                    ("https://x.com/a/status/1", "Elon Musk on X"),
+                    ("https://x.com/b/status/2", "xAI on X"),
+                ),
+            )
+        )
+        out = arun(tool.search_x("q"))
+
+        assert "[1] https://x.com/a/status/1 (@a)" in out
+        assert "[2] https://x.com/b/status/2 (@b)" in out
+        assert "Elon Musk on X" not in out
+
+    def test_partially_numbered_annotations_do_not_collide(self, tool, xai):
+        xai.queue(
+            payload=message_payload(
+                cited=(("https://x.com/a/status/1", "2"), ("https://x.com/b/status/2", None)),
+            )
+        )
+        out = arun(tool.search_x("q"))
+        numbers = [line.split("]")[0] for line in out.splitlines() if line.startswith("[")]
+        assert numbers == ["[1", "[2"]
 
     def test_emits_citation_events(self, tool, xai, events):
         xai.queue(

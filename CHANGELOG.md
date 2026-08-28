@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+Fixes found in a review of 1.0.0.
+
+- Citation numbering is now all-or-nothing. `annotation.title` is a page title in the
+  general Responses API shape and only sometimes the bracket number the summary refers
+  to; reusing one as a number printed titles where numbers belonged, and a partial set
+  collided with the positional fallback. Either every annotation supplies a number or
+  the list is numbered sequentially.
+- A response the API cut short is no longer reported as "No X posts were found". It
+  carries no message block, so it was indistinguishable from an empty result — and the
+  tool was stating a falsehood about X on the strength of a local token cap. It now
+  returns an error naming the cause, and flags a partial answer as unfinished.
+- URLs built on a reserved X path (`x.com/i/status/<id>`, `x.com/home`) no longer parse
+  as handles called `i` or `home`. xAI's own citations use the handle-less form, so a
+  model passing one back as a filter silently scoped the search to an account that does
+  not exist. `_source_name` already knew this; the parser now does too.
+- An over-long handle in URL form is rejected instead of truncated to its first 15
+  characters, which produced a wrong but entirely plausible handle. The bare form
+  already rejected it; the two forms now agree.
+- A handle filter that parses to nothing no longer searches all of X. An allow-list
+  failing open is a scope violation, so it is refused whatever its source, as is a
+  call-level exclusion. Only the instance-wide exclusion default degrades to a note, so
+  one bad valve cannot brick every search on a server.
+- `allowed_handles` + `excluded_handles` in one call is now rejected before parsing, so
+  an unparseable exclusion can no longer swallow the conflict and leave the search
+  running with half of what was asked for.
+- Host matching is case-insensitive throughout: `https://X.com/elonmusk` labels as
+  `@elonmusk` rather than `X.com`.
+- A 200 response whose body is valid JSON but not an object no longer crashes the tool
+  with an unhandled `AttributeError`; it is reported like any other unreadable body.
+
 ## 1.0.0
 
 First working release.

@@ -29,9 +29,35 @@ _MESSAGE_CALLS: dict[str, dict] = {}
 GATE_TTL_SECONDS = 900
 
 # Matches a bare handle, an @handle, or a profile/post URL we can pull a handle out of.
+# The URL form requires the handle segment to end at a delimiter, so an over-long
+# segment is rejected outright rather than silently truncated to its first 15
+# characters — which would yield a wrong but entirely plausible handle.
 HANDLE_RE = re.compile(
-    r"^(?:https?://)?(?:www\.)?(?:x|twitter)\.com/(?:#!/)?(?P<url>[A-Za-z0-9_]{1,15})"
-    r"|^@?(?P<bare>[A-Za-z0-9_]{1,15})$"
+    r"^(?:https?://)?(?:www\.)?(?:x|twitter)\.com/(?:#!/)?(?P<url>[A-Za-z0-9_]{1,15})(?=[/?#]|$)"
+    r"|^@?(?P<bare>[A-Za-z0-9_]{1,15})$",
+    re.IGNORECASE,
+)
+
+# First path segments X reserves for itself, so a URL built on one carries no handle.
+# xAI's own citations routinely use the handle-less x.com/i/status/<id> form.
+RESERVED_X_PATHS = frozenset(
+    {
+        "compose",
+        "explore",
+        "hashtag",
+        "home",
+        "i",
+        "intent",
+        "login",
+        "logout",
+        "messages",
+        "notifications",
+        "search",
+        "settings",
+        "share",
+        "signup",
+        "topics",
+    }
 )
 
 DEFAULT_INSTRUCTIONS = (
@@ -54,27 +80,37 @@ def _normalise_handles(raw: str) -> tuple[list[str], Optional[str]]:
 
     handles: list[str] = []
     rejected: list[str] = []
+    reserved: list[str] = []
     for chunk in re.split(r"[,\s]+", raw.strip()):
+        chunk = chunk.strip()
         if not chunk:
             continue
-        match = HANDLE_RE.match(chunk.strip())
+        match = HANDLE_RE.match(chunk)
         if not match:
             rejected.append(chunk)
             continue
         handle = match.group("url") or match.group("bare")
+        # Only the URL form can name a reserved path; a bare "home" is far more
+        # likely to be someone naming the @home account than a mistake.
+        if match.group("url") and handle.lower() in RESERVED_X_PATHS:
+            reserved.append(chunk)
+            continue
         if handle.lower() not in {h.lower() for h in handles}:
             handles.append(handle)
 
-    warning = None
+    warnings: list[str] = []
     if rejected:
-        warning = f"Ignored unparseable handle(s): {', '.join(rejected)}."
+        warnings.append(f"Ignored unparseable handle(s): {', '.join(rejected)}.")
+    if reserved:
+        warnings.append(f"Ignored URL(s) that carry no handle: {', '.join(reserved)}.")
     if len(handles) > MAX_HANDLES:
         dropped = handles[MAX_HANDLES:]
         handles = handles[:MAX_HANDLES]
-        extra = f"Only the first {MAX_HANDLES} handles were used (dropped: {', '.join(dropped)})."
-        warning = f"{warning} {extra}" if warning else extra
+        warnings.append(
+            f"Only the first {MAX_HANDLES} handles were used (dropped: {', '.join(dropped)})."
+        )
 
-    return handles, warning
+    return handles, " ".join(warnings) or None
 
 
 def _prune_message_calls(now: float) -> None:
@@ -145,19 +181,39 @@ def _extract_text(payload: dict) -> str:
     return "\n\n".join(parts).strip()
 
 
+def _incomplete_reason(payload: dict) -> Optional[str]:
+    """Why the API stopped early, if it did.
+
+    A response truncated part-way carries no message block, so without this it is
+    indistinguishable from a search that genuinely found nothing — and would be
+    reported to the model as a fact about X rather than a limit on our side.
+    """
+    if payload.get("status") != "incomplete":
+        return None
+    details = payload.get("incomplete_details")
+    reason = details.get("reason") if isinstance(details, dict) else None
+    return str(reason) if reason else "reason unspecified"
+
+
 def _source_name(url: str) -> str:
     """A readable label for a cited URL, e.g. '@elonmusk' for an X post.
 
     Note that xAI also returns handle-less forms like x.com/i/status/<id> and
     x.com/i/user/<id>; '/i/' is a reserved path, not a handle.
     """
-    x_path = re.match(r"^https?://(?:www\.)?(?:x|twitter)\.com/(?P<path>.*)$", url)
+    x_path = re.match(
+        r"^https?://(?:www\.)?(?:x|twitter)\.com/(?P<path>.*)$", url, re.IGNORECASE
+    )
     if not x_path:
-        domain = re.sub(r"^https?://(?:www\.)?", "", url).split("/")[0]
+        domain = re.sub(r"^https?://(?:www\.)?", "", url, flags=re.IGNORECASE).split("/")[0]
         return domain or url
 
     segments = [s for s in x_path.group("path").split("/") if s]
-    if segments and segments[0] != "i" and re.fullmatch(r"[A-Za-z0-9_]{1,15}", segments[0]):
+    if (
+        segments
+        and segments[0].lower() not in RESERVED_X_PATHS
+        and re.fullmatch(r"[A-Za-z0-9_]{1,15}", segments[0])
+    ):
         return f"@{segments[0]}"
     return "X post" if "status" in segments else "X profile"
 
@@ -186,10 +242,16 @@ def _extract_citations(payload: dict) -> list[dict]:
             if url not in cited or (label and not cited[url]):
                 cited[url] = label
 
-    # Keep the model's numbering when it gave us usable numbers.
+    # Keep the model's numbering only when *every* annotation gave us a number.
+    # `title` is a page title in the general Responses API shape and only sometimes
+    # the bracket number the summary refers to, so this is all or nothing: a partial
+    # set would print page titles where numbers belong, or collide with the
+    # positional fallback used for the annotations that carry no number.
     ordered = list(cited.items())
     if ordered and all(label.isdigit() for _, label in ordered):
         ordered.sort(key=lambda item: int(item[1]))
+    else:
+        ordered = [(url, "") for url, _ in ordered]
 
     results = [{"url": url, "label": label, "cited": True} for url, label in ordered]
 
@@ -290,6 +352,15 @@ async def _perform_search(
     user_valves = (user or {}).get("valves")
     notes: list[str] = []
 
+    # The API rejects both filters in the same request. Checked on the raw arguments,
+    # before parsing, so that an unparseable exclusion cannot quietly swallow the
+    # conflict and leave the search running with only half of what was asked for.
+    if (allowed_handles or "").strip() and (excluded_handles or "").strip():
+        return (
+            "Error: `allowed_handles` and `excluded_handles` cannot be used in the "
+            "same search. Pick one."
+        )
+
     allowed_raw = allowed_handles or getattr(user_valves, "ALLOWED_HANDLES", "") or ""
     excluded_raw = (
         excluded_handles
@@ -297,25 +368,42 @@ async def _perform_search(
         or valves.DEFAULT_EXCLUDED_HANDLES
         or ""
     )
+    excluded_from_call = bool((excluded_handles or "").strip())
 
-    allowed, warning = _normalise_handles(allowed_raw)
-    if warning:
-        notes.append(warning)
-    excluded, warning = _normalise_handles(excluded_raw)
-    if warning and not allowed:
-        notes.append(warning)
+    allowed, allowed_warning = _normalise_handles(allowed_raw)
+    excluded, excluded_warning = _normalise_handles(excluded_raw)
 
-    # The API rejects both filters in the same request.
-    if allowed and excluded:
-        if allowed_handles and excluded_handles:
-            return (
-                "Error: `allowed_handles` and `excluded_handles` cannot be used in the "
-                "same search. Pick one."
-            )
-        excluded = []
-        notes.append(
-            "Excluded-handle defaults were ignored because the search is restricted to specific handles."
+    # A filter that was asked for but parsed to nothing would search all of X: broader
+    # than what was asked for, and a full agent investigation spent before anyone finds
+    # out. An allow-list failing open is a scope violation, so it is refused whatever
+    # its source. A call-level exclusion is refused too. Only the instance-wide
+    # exclusion default degrades to a note, so one bad valve cannot brick every search.
+    if allowed_raw.strip() and not allowed:
+        detail = f" {allowed_warning}" if allowed_warning else ""
+        return (
+            f"Error: no usable X handle in the allowed-handle filter.{detail} Searching "
+            "without the restriction would be broader than asked, so nothing was sent."
         )
+    if excluded_from_call and not excluded:
+        detail = f" {excluded_warning}" if excluded_warning else ""
+        return (
+            f"Error: no usable X handle in `excluded_handles`.{detail} Searching without "
+            "the exclusion would be broader than asked, so nothing was sent."
+        )
+
+    if allowed_warning:
+        notes.append(allowed_warning)
+
+    if allowed and excluded:
+        excluded = []
+        excluded_warning = None
+        notes.append(
+            ("Call-level" if excluded_from_call else "Default")
+            + " excluded handles were ignored because the search is restricted to "
+            "specific handles."
+        )
+    if excluded_warning:
+        notes.append(excluded_warning)
 
     from_date, error = _validate_date(from_date, "from_date")
     if error:
@@ -508,6 +596,9 @@ async def _perform_search(
     try:
         payload = response.json()
     except ValueError:
+        payload = None
+    # Valid JSON that is not an object would crash every reader below on .get().
+    if not isinstance(payload, dict):
         release_slot()
         await status("X search failed.", done=True)
         return "Error: the xAI API returned a response that was not valid JSON."
@@ -515,6 +606,27 @@ async def _perform_search(
     text = _extract_text(payload)
     citations = _extract_citations(payload)
     searches = _extract_searches(payload)
+
+    # Distinguish "the search was cut short" from "X had nothing", which look identical
+    # in the payload. The slot is not released: the call was billed, and a retry would
+    # hit the same cap rather than fixing anything.
+    incomplete = _incomplete_reason(payload)
+    if incomplete and not text:
+        await status("X search was cut short.", done=True)
+        hint = (
+            " Raise the MAX_OUTPUT_TOKENS valve, or set it to 0 to leave the cap to the API."
+            if incomplete == "max_output_tokens"
+            else ""
+        )
+        return complete(
+            f"Error: the search model stopped before writing an answer ({incomplete}), so "
+            f"no results came back for “{query}”. This is a limit on this end, not a "
+            f"finding about X — do not report it as one.{hint}"
+        )
+    if incomplete:
+        notes.append(
+            f"The search model's answer was cut short ({incomplete}) and may be unfinished."
+        )
 
     if not text and not citations:
         await status("No X posts found.", done=True)
