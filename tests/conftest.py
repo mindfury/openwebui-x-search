@@ -44,6 +44,14 @@ def message_payload(
 
 EMPTY_PAYLOAD = {"output": [], "citations": []}
 
+# A response the API cut short: no message block at all, which is indistinguishable
+# from an empty result unless the status is read.
+INCOMPLETE_PAYLOAD = {
+    "status": "incomplete",
+    "incomplete_details": {"reason": "max_output_tokens"},
+    "output": [{"type": "reasoning", "summary": []}],
+}
+
 
 class FakeResponse:
     def __init__(self, status_code, payload, text=""):

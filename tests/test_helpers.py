@@ -38,6 +38,41 @@ class TestHandles:
     def test_empty_input(self):
         assert x_search._normalise_handles("") == ([], None)
 
+    def test_rejects_urls_built_on_reserved_paths(self):
+        """xAI's own citations use the handle-less x.com/i/status/<id> form."""
+        handles, warning = x_search._normalise_handles(
+            "https://x.com/i/status/1975607901571199086, x.com/i/user/1912644073896206336"
+        )
+        assert handles == []
+        assert "carry no handle" in warning
+
+    def test_reserved_paths_are_dropped_alongside_real_handles(self):
+        handles, warning = x_search._normalise_handles("@nasa, x.com/home, x.com/xai")
+        assert handles == ["nasa", "xai"]
+        assert "x.com/home" in warning
+
+    def test_a_bare_reserved_word_is_still_a_handle(self):
+        """Only a URL path segment can be reserved; @home is an ordinary account."""
+        assert x_search._normalise_handles("@home")[0] == ["home"]
+
+    def test_rejects_rather_than_truncates_an_over_long_url_handle(self):
+        """Truncating would yield a wrong but entirely plausible handle."""
+        handles, warning = x_search._normalise_handles(
+            "x.com/a_handle_far_too_long_to_be_real"
+        )
+        assert handles == []
+        assert warning is not None
+
+    def test_url_handles_may_be_followed_by_a_delimiter(self):
+        handles, warning = x_search._normalise_handles(
+            "https://x.com/elonmusk?lang=en https://x.com/xai#bio x.com/foo/status/1"
+        )
+        assert handles == ["elonmusk", "xai", "foo"]
+        assert warning is None
+
+    def test_host_matching_is_case_insensitive(self):
+        assert x_search._normalise_handles("HTTPS://X.COM/elonmusk")[0] == ["elonmusk"]
+
 
 class TestDates:
     def test_accepts_iso8601(self):
@@ -69,6 +104,12 @@ class TestSourceName:
             ("https://x.com/i/user/1912644073896206336", "X profile"),
             ("https://x.ai/news", "x.ai"),
             ("https://docs.x.ai/developers/release-notes", "docs.x.ai"),
+            # Other reserved paths are no more a handle than '/i/' is.
+            ("https://x.com/search?q=grok", "X profile"),
+            ("https://x.com/home", "X profile"),
+            # xAI is not obliged to hand back a lowercased host.
+            ("https://X.com/elonmusk", "@elonmusk"),
+            ("HTTPS://TWITTER.COM/xai/status/9", "@xai"),
         ],
     )
     def test_labels(self, url, expected):
@@ -161,6 +202,72 @@ class TestExtractCitations:
 
     def test_ignores_non_http_values(self):
         assert x_search._extract_citations({"citations": ["not-a-url", None, 42]}) == []
+
+    def test_page_titles_are_not_mistaken_for_numbers(self):
+        """`title` is a page title in the general Responses API shape.
+
+        Reusing one as a citation number would print it where a number belongs and
+        break the summary's [1]/[2] cross-references entirely.
+        """
+        payload = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "A [1] and B [2].",
+                            "annotations": [
+                                {"url": "https://x.com/a/status/1", "title": "Elon Musk on X"},
+                                {"url": "https://x.com/b/status/2", "title": "xAI on X"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        assert [c["label"] for c in x_search._extract_citations(payload)] == ["", ""]
+
+    def test_numbering_is_all_or_nothing(self):
+        """A partial set would collide with the positional fallback."""
+        payload = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "x",
+                            "annotations": [
+                                {"url": "https://x.com/a/status/1", "title": "2"},
+                                {"url": "https://x.com/b/status/2"},
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        assert [c["label"] for c in x_search._extract_citations(payload)] == ["", ""]
+
+
+class TestIncompleteReason:
+    def test_none_for_a_complete_response(self):
+        assert x_search._incomplete_reason({"status": "completed", "output": []}) is None
+        assert x_search._incomplete_reason({"output": []}) is None
+
+    def test_reads_the_documented_reason(self):
+        payload = {
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+        }
+        assert x_search._incomplete_reason(payload) == "max_output_tokens"
+
+    def test_falls_back_when_no_reason_is_given(self):
+        assert x_search._incomplete_reason({"status": "incomplete"}) == "reason unspecified"
+        assert (
+            x_search._incomplete_reason({"status": "incomplete", "incomplete_details": None})
+            == "reason unspecified"
+        )
 
 
 class TestExtractSearches:

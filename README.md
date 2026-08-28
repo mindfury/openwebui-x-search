@@ -89,7 +89,12 @@ A single tool, `search_x`. Only `query` is required.
 | `allowed_handles` | Only these handles, max 20. Not combinable with exclusions |
 | `excluded_handles` | Leave these out, max 20. Not combinable with `allowed_handles` |
 
-Handles are accepted as `@name`, `name`, or a profile/post URL.
+Handles are accepted as `@name`, `name`, or a profile/post URL. URLs built on a
+reserved X path carry no handle (`x.com/i/status/…`, `x.com/home`) and are rejected
+rather than read as an account called `i` or `home`. If a handle filter is asked for
+but nothing in it parses, the search is refused rather than run unfiltered — running
+it would be broader than what was asked for, and you'd pay for a full investigation
+to find out.
 
 ## Cost and latency
 
@@ -175,6 +180,9 @@ never touches the network.
   one: batch siblings arrive milliseconds apart, retries take seconds.
 - Broad queries like "today's top news" return little; X search works better on a
   specific topic.
+- `MAX_OUTPUT_TOKENS` caps the search agent mid-answer rather than shortening it. If
+  it's set too low the response comes back truncated, and the tool reports that as an
+  error naming the valve — it will not pass it off as "nothing found on X".
 
 ## License
 
