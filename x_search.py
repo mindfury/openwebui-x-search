@@ -3,7 +3,7 @@ title: X Search
 description: Give any model live access to X (Twitter). Not an API wrapper that fetches posts - a Grok agent researches your question on X and writes a cited answer. Needs an xAI API key; 20-60s and xAI credits per search.
 author: mindfury
 author_url: https://github.com/mindfury/openwebui-x-search
-version: 1.0.0
+version: 1.0.1
 license: MIT
 requirements: requests
 """
